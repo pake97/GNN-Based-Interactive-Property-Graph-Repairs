@@ -1,0 +1,29 @@
+pygame 2.6.1 (SDL 2.28.4, Python 3.10.14)
+Hello from the pygame community. https://www.pygame.org/contribute.html
+Loading user model from super_repair_type_model.pkl
+Model loaded successfully.
+Theta: 1.0
+Users: 2500
+Dataset: finbench
+Difficulty Metric: difficulty
+Loading graph from dataset: finbench
+Loading graph from dataset: finbench with metric: difficulty
+Loaded 8998 nodes from grdg_nodes.csv
+Loaded nodes into the graph.
+Loaded edges into the graph.
+Graph loaded successfully.
+Generating 2500 users with capacity between 5 and 50, cost between 1 and 5
+Generated 8998 users.
+Graph has 8998 nodes and 30802 edges
+sorting nodes by degree
+nodes sorted by degree
+sorting users by efficiency and nodes by metric
+users sorted by efficiency
+Greedy assignment took 0.36040306091308594 seconds
+Assigned: 8998 of the 8998 users
+AU: 8998
+Edge cut: 30802
+Total cost: 93705
+F1 Score: 0.7925727939542121
+GNN F1 Score: nan
+Users F1 Score: 0.7925727939542121

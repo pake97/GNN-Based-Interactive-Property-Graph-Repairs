@@ -1,0 +1,10 @@
+data/finbench/finbench_with_violations.csv
+data/icij/paradise_with_violations.csv
+data/finbench/finbench_rels.csv
+data/icij/paradise_icij_with_violations.csv
+data/icij/icij_with_violations.csv
+data/snb/grdg_edges.csv
+data/**.csv
+
+data/
+data/**/*.csv

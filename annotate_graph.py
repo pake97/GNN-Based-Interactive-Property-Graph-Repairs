@@ -16,9 +16,22 @@ import resource
 
 
 
-def df_to_nx(df): 
+def df_to_nx(df, dir_path): 
     G = nx.DiGraph() #create a directed graph
     #iterate over the rows of the dataframe
+   
+    # if 'faers' in dir_path:
+    #     smooths = pd.read_csv('./data/faers/faers_smooth_scores.csv')
+    #     radar = pd.read_csv('./data/faers/faers_radar_scores.csv')
+    #     hogat = pd.read_csv('./data/faers/faers_hogat_scores.csv')
+    # elif 'finbench' in dir_path:
+    #     smooths = pd.read_csv('./data/finbench/finbench_smooth_scores.csv')
+    #     radar = pd.read_csv('./data/finbench/finbench_radar_scores.csv')
+    #     hogat = pd.read_csv('./data/finbench/finbench_hogat_scores.csv')
+    # elif 'icij' in dir_path:
+    #     smooths = pd.read_csv('./data/icij/icij_smooth_scores.csv')
+    # elif 'snb' in dir_path:
+    #     smooths = pd.read_csv('./data/snb/snb_smooth_scores.csv')
     for i, row in df.iterrows():
         
         #if row['id] is not empty, it is a node , the node type is in the column "_labels" but we need to strip ":", the we add all the properties (the columns) that are not NaN to the node. 
@@ -31,6 +44,13 @@ def df_to_nx(df):
             for col in df.columns:
                 if col not in ['_id', '_labels'] and pd.notna(row[col]):
                     G.nodes[node][col] = row[col]
+            
+            # if G.nodes[node]['type']!='Violation':
+            #     if radar is not None and hogat is not None:
+            #         G.nodes[node]['radar'] = float(radar.iloc[i]['score'])
+            #         G.nodes[node]['hogat'] = float(hogat.iloc[i]['score'])
+            #     G.nodes[node]['smooth'] = float(smooths.iloc[i]['score'])
+                
         #if row['id] is empty, it is a relation , the relation type is in the column "_type" but we need to strip ":", source node is in column '_start' and target in column "_end" the we add all the properties (the columns) that are not NaN to the relation.        
         else:
             source = int(row['_start'])
@@ -159,20 +179,23 @@ def invert_node_index_map(node_index_map):
 
 
 class GRDG(nx.Graph):
-    def __init__(self, original_graph, alpha=0.2, beta=0.1):
+    def __init__(self, original_graph, alpha=0.2, beta=0.1, path=None, data=None):
         super().__init__()
+        self.csv_data=data
         self.original_graph = original_graph
         self.alpha = 0.20786
         self.beta = 0.534601
         #Alpha: 0.5059845592208605
         #Beta: 0.1957506318635603
         self._violation_features = {}
-        self._build_grdg()
+        self._build_grdg(dir_path=path)
         
         
-    def _build_grdg(self):
+    def _build_grdg(self, dir_path=None):
+        
+        csv_graph = self.original_graph
         # Step 1: Collect all violation subgraphs
-        violations = defaultdict(lambda: {"nodes": set(), "edges": set()})
+        violations = defaultdict(lambda: {"nodes": set(), "edges": set(),"type":0})
 
         for node, data in self.original_graph.nodes(data=True):
             if(data.get("isViolation") is True):
@@ -182,44 +205,76 @@ class GRDG(nx.Graph):
         for u, v, data in graph.edges(data=True):
             if(data.get("isViolation.1") is True):
                 for v_id in json.loads(data.get("violationId.1")):
-                    violations[v_id]["edges"].add((u, v))
 
+                    violations[v_id]["edges"].add((u, v))
+                    violations[v_id]['type']=data.get("violationType.1")
+                    
+                    
         # Step 2: Create hypervertices
         for v_id, content in violations.items():
             node_ids = list(content["nodes"])
             edge_ids = list(content["edges"])
-            cognitive_load = self._compute_cognitive_load(node_ids, edge_ids)
-            node_confidences = [self.original_graph.nodes[n].get("node_confidence", 1) for n in node_ids]
-            edge_scores = [self.original_graph.get_edge_data(u, v).get("prediction_score", 1) for u, v in edge_ids]
-            labels = [self.original_graph.get_edge_data(u, v).get("toDelete", False) for u, v in edge_ids]
-            edge_info_dict = {
-                (u, v): (
-                    self.original_graph.get_edge_data(u, v).get("prediction_score", 1),
-                    self.original_graph.get_edge_data(u, v).get("toDelete", False)
-                )
-                for (u, v) in edge_ids
-            }
 
-            avg_node_conf = sum(node_confidences) / len(node_confidences) if node_confidences else 0.0
-            avg_edge_score = sum(edge_scores) / len(edge_scores) if edge_scores else 0.0
-            sum_node_conf = sum(node_confidences)
-            sum_edge_score = sum(edge_scores)
-            real_difficulty = avg_node_conf * self.alpha + avg_edge_score * self.beta
-            self._violation_features[v_id] = (avg_node_conf, avg_edge_score)
-            self.add_node(v_id,
-                          type="hypervertex",
-                          difficulty=0,
-                          cognitive_load=cognitive_load,
-                          nodes=node_ids,
-                          edge_info_dict=edge_info_dict,
-                          real_difficulty=real_difficulty,
-                          avg_sum_node_conf=0.5*sum_node_conf+0.5*sum_edge_score,
-                          avg_node_confidence=avg_node_conf,
-                          avg_edge_prediction_score=avg_edge_score,
-                          sum_node_conf=sum_node_conf, 
-                          sum_edge_score = sum_edge_score,
-                          edges=edge_ids)
-        
+            #search in graoh where violationId = v_id 
+            # print(v_id)
+            # print(csv_graph[csv_graph['violationId']==v_id])
+            
+            
+            try:
+                graph_node = self.csv_data[self.csv_data['violationId']==v_id].iloc[0]
+                
+                cognitive_load = self._compute_cognitive_load(node_ids, edge_ids)
+                node_confidences = [self.original_graph.nodes[n].get("node_confidence", 1) for n in node_ids]
+                edge_scores = [self.original_graph.get_edge_data(u, v).get("prediction_score", 1) for u, v in edge_ids]
+                if 'faers' in dir_path or 'finbench' in dir_path:
+                    radar_scores = [self.original_graph.nodes[n].get("radar", 0) for n in node_ids]
+                    hogat_scores = [self.original_graph.nodes[n].get("hogat", 0) for n in node_ids]
+                else: 
+                    radar_scores = [0 for n in node_ids]
+                    hogat_scores = [0 for n in node_ids]
+                smooth_scores = [self.original_graph.nodes[n].get("smooth", 0) for n in node_ids]
+                labels = [self.original_graph.get_edge_data(u, v).get("toDelete", False) for u, v in edge_ids]
+                edge_info_dict = {
+                    (u, v): (
+                        self.original_graph.get_edge_data(u, v).get("prediction_score", 1),
+                        self.original_graph.get_edge_data(u, v).get("toDelete", False)
+                    )
+                    for (u, v) in edge_ids
+                }
+
+                avg_node_conf = sum(node_confidences) / len(node_confidences) if node_confidences else 0.0
+                avg_edge_score = sum(edge_scores) / len(edge_scores) if edge_scores else 0.0
+                sum_node_conf = sum(node_confidences)
+                sum_edge_score = sum(edge_scores)
+                
+                avg_radar_score = sum(radar_scores) / len(radar_scores) if radar_scores else 0.0
+                avg_hogat_score = sum(hogat_scores) / len(hogat_scores) if hogat_scores else 0.0
+
+                avg_smooth_score = sum(smooth_scores) / len(smooth_scores) if smooth_scores else 0.0
+                real_difficulty = avg_node_conf * self.alpha + avg_edge_score * self.beta
+                self._violation_features[v_id] = (avg_node_conf, avg_edge_score)
+                self.add_node(v_id,
+                                type="hypervertex",
+                                difficulty=0,
+                                cognitive_load=cognitive_load,
+                                nodes=node_ids,
+                                radar=avg_radar_score,
+                                hogat=avg_hogat_score,
+                                smooth=avg_smooth_score,
+                                repairs=graph_node['repairs'],
+                                order=graph_node['order'],
+                                f1s=graph_node['f1s'],
+                                constraint=graph_node['constraint'],
+                                edge_info_dict=edge_info_dict,
+                                real_difficulty=real_difficulty,
+                                avg_sum_node_conf=0.5*sum_node_conf+0.5*sum_edge_score,
+                                avg_node_confidence=avg_node_conf,
+                                avg_edge_prediction_score=avg_edge_score,
+                                sum_node_conf=sum_node_conf, 
+                                sum_edge_score = sum_edge_score,
+                                edges=edge_ids)
+            except Exception as e:
+                continue        
         alpha, beta = 0.5, 0.5
         self.compute_difficulty_with_weights(alpha, beta)
         
@@ -362,14 +417,7 @@ if __name__ == "__main__":
     dir_path = sys.argv[1]
     file_name = sys.argv[2]
     
-
-
-
-
     
-    
-    
-
 
     print(f"Processing dataset from {dir_path} with file {file_name}...")
     x_dict = torch.load(dir_path+'/x_dict.pt',weights_only=False)
@@ -388,9 +436,9 @@ if __name__ == "__main__":
     print("Inverted node index map.")
     data = pd.read_csv(f'{dir_path}/{file_name}',low_memory=False)
 
-    graph = df_to_nx(data)
+    graph = df_to_nx(data, dir_path)
     
-    nx.write_graphml(graph, dir_path+'/sw.graphml')    
+       
     print("Converted DataFrame to NetworkX graph.")
     edge_scores = torch.load(dir_path+'/scores.pt',weights_only=False)
     edge_label_index_dict = torch.load(dir_path+'/edge_label_index_dict.pt',weights_only=False)
@@ -418,7 +466,7 @@ if __name__ == "__main__":
 
 
 
-    grdg = GRDG(graph)
+    grdg = GRDG(graph, path=dir_path, data=data)
     
 
     grdg.save_as_csv(dir_path=dir_path)    

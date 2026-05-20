@@ -12,7 +12,7 @@ import warnings
 import time
 import concurrent.futures
 import math
-
+import csv
 
 import argparse
 import ast
@@ -26,29 +26,47 @@ def build_edge(row):
     return (row["source"], row["target"], {"weight": row["weight"]})
 
 
-def load_graph(nodes, edges):
+def load_graph(nodes, edges, dataset):
     grdg = nx.Graph()
     
     
     print(f"Loaded {len(nodes)} nodes from grdg_nodes.csv")
+    min_difficulty = nodes.select(pl.col("difficulty")).min()[0, 0]
+    max_difficulty = nodes.select(pl.col("difficulty")).max()[0, 0]
+    
+    max_smooth_score = nodes.select(pl.col("smooth")).max()[0, 0]
+    min_smooth_score = nodes.select(pl.col("smooth")).min()[0, 0]
+    max_radar_score = nodes.select(pl.col("radar")).max()[0, 0]
+    min_radar_score = nodes.select(pl.col("radar")).min()[0,0]
+
+    max_hogat_score = nodes.select(pl.col("hogat")).max()[0, 0]
+    min_hogat_score = nodes.select(pl.col("hogat")).min()[0, 0]
+    
+    min_degree = nodes.select(pl.col("degree")).min()[0, 0]
+    max_degree = nodes.select(pl.col("degree")).max()[0, 0]
+    
+    min_cognitive_load = nodes.select(pl.col("cognitive_load")).min()[0, 0]
+    max_cognitive_load = nodes.select(pl.col("cognitive_load")).max()[0, 0]
+    
+    min_pagerank = nodes.select(pl.col("pagerank")).min()[0, 0]
+    max_pagerank = nodes.select(pl.col("pagerank")).max()[0, 0]
+                                                                      
     
     
     alpha=0.505985
     beta=0.195751
     # iterate over each row and print it 
     for row in nodes.iter_rows(named=True):
-        min_cl = nodes['cs_cl'].min()
-        max_cl = nodes['cs_cl'].max()
-        min_degree = nodes['degree'].min()
-        max_degree = nodes['degree'].max()
-        min_pr = nodes['pagerank'].min()
-        max_pr = nodes['pagerank'].max()
+        normalized_smooth = (row['smooth'] - min_smooth_score) / (max_smooth_score - min_smooth_score) if max_smooth_score != min_smooth_score else 0
+        normalized_radar = (row['radar'] - min_radar_score) / (max_radar_score - min_radar_score) if max_radar_score != min_radar_score else 0
+        normalized_hogat = (row['hogat'] - min_hogat_score) / (max_hogat_score - min_hogat_score) if max_hogat_score != min_hogat_score else 0
+
+        normalized_pagerank = (row['pagerank'] - min_pagerank) / (max_pagerank - min_pagerank) if max_pagerank != min_pagerank else 0
+        normalized_degree = (row['degree'] - min_degree) / (max_degree - min_degree) if max_degree != min_degree else 0
+        normalized_cognitive_load = (row['cognitive_load'] - min_cognitive_load) / (max_cognitive_load - min_cognitive_load) if max_cognitive_load != min_cognitive_load else 0
+
         
-        num_nodes = len(json.loads(row["nodes"]))
-        num_edges = len(ast.literal_eval(row["edges"]))
-         
-        
-        grdg.add_node(row["id"], difficulty=row['difficulty'],degree=row['degree'],sum_node_conf=row['sum_node_conf'],sum_edge_score=row['sum_edge_score'],real_difficulty=alpha*row['avg_node_confidence']+beta*row['avg_edge_prediction_score'], nodes=json.loads(row["nodes"]), edges=ast.literal_eval(row["edges"]), num_nodes=len(json.loads(row["nodes"])), num_edges=len(ast.literal_eval(row["edges"])), edge_info=ast.literal_eval(row["edge_info_dict"]), normalized_cs_cl=(row['cs_cl'] - min_cl) / (max_cl - min_cl) if max_cl != min_cl else 0, normalized_degree=(row['degree'] - min_degree) / (max_degree - min_degree) if max_degree != min_degree else 0, normalized_pagerank=(row['pagerank'] - min_pr) / (max_pr - min_pr) if max_pr != min_pr else 0)
+        grdg.add_node(row["id"],normalized_pagerank=normalized_pagerank,normalized_degree=normalized_degree,normalized_cs_cl=normalized_cognitive_load, normalized_hogat=normalized_hogat,normalized_radar=normalized_radar,normalized_smooth=normalized_smooth,normalized_difficulty=(row['difficulty']-min_difficulty)/(max_difficulty-min_difficulty) if max_difficulty != min_difficulty else 0,difficulty=row['difficulty'],sum_node_conf=row['sum_node_conf'],sum_edge_score=row['sum_edge_score'],real_difficulty=alpha*row['avg_node_confidence']+beta*row['avg_edge_prediction_score'], nodes=json.loads(row["nodes"]), edges=ast.literal_eval(row["edges"]), num_nodes=len(json.loads(row["nodes"])), num_edges=len(ast.literal_eval(row["edges"])), edge_info=ast.literal_eval(row["edge_info_dict"]))
         
     print(f"Loaded nodes into the graph.")
     
@@ -67,22 +85,28 @@ def gnn_pass(graph, theta, f1_score=[], gnn_f1_score=[]):
     
     G = graph.copy()
     for n,d in G.nodes(data=True):
+       
         deleted = False
-        if(len(d["edge_info"])==0):
+        
+        if(d["difficulty"]<(1-theta)):
+            
+            #we need the edges whose score is les then theta     
+            edges_below_theta = [{edge:d["edge_info"][edge][0]} for edge in d["edge_info"].keys()]
+            toDelete = min(data, key=lambda d: next(iter(d.values())))
+            
+            
+            #after deleting the edge, we check if the node is isolated, if yes we delete it
+            if d["edge_info"][toDelete.keys()[0]][1]:
+                f1_score.append(1)
+                gnn_f1_score.append(1)
+                #print("deleted correctly")
+            else:
+                f1_score.append(0)    
+                gnn_f1_score.append(0)    
             graph.remove_node(n)
-        for edge in d["edge_info"].keys():
-            #print(d["edge_info"][edge])
-            if d["edge_info"][edge][0]>theta:
-                deleted = True
-                if d["edge_info"][edge][1]:
-                    f1_score.append(1)
-                    gnn_f1_score.append(1)
-                    #print("deleted correctly")
-                else:
-                    f1_score.append(0)    
-                    gnn_f1_score.append(0)    
-        if(deleted):
-            graph.remove_node(n)
+        
+        
+
     return f1_score, gnn_f1_score
 
 
@@ -103,51 +127,145 @@ if __name__ == "__main__":
     
 
     f1_score = []
-    grdg = load_graph(df_nodes, df_edges)
-    for theta in [1.0]:
-        if theta == 1.0:
-            rows = []
-            for node_id, attrs in grdg.nodes(data=True):
-                row = {"id": node_id}
-                for k, v in attrs.items():
-                    # dump lists, tuples, dicts, etc. as JSON text
-                    if isinstance(v, (dict, list, tuple)):
-                        row[k] = str(v)
-                    else:
-                        row[k] = v
-                rows.append(row)
-            df_nodes = pl.DataFrame(rows)
-            rows = [(u, v, d.get("weight", 1.0)) for u, v, d in grdg.edges(data=True)]
-            df_edges = pl.DataFrame(rows, schema=["source", "target", "weight"])
-            df_nodes.write_ipc(f"{dataset}/grdgs/{theta}_nodes.feather")
-            df_edges.write_ipc(f"{dataset}/grdgs/{theta}_edges.feather")       
-            with open (f"{dataset}/grdgs/{theta}_f1.txt", "w") as f:
-                f.write(f"F1 Score: {np.mean(f1_score)}\n")
-                f.write(f"GNN F1 Score: {np.mean(gnn_f1_score)}\n")
-                f.write(f"Delete nodes: {len(f1_score)}\n")
-            
-        else:
-            f1_score, gnn_f1_score = gnn_pass(grdg, theta)
-            rows = []
-            for node_id, attrs in grdg.nodes(data=True):
-                row = {"id": node_id}
-                for k, v in attrs.items():
-                    # dump lists, tuples, dicts, etc. as JSON text
-                    if isinstance(v, (dict, list, tuple)):
-                        row[k] = str(v)
-                    else:
-                        row[k] = v
-                rows.append(row)
+    gnn_f1_score = []
+    grdg = load_graph(df_nodes, df_edges, dataset)    
+    
+    print(f"Graph loaded with {grdg.number_of_nodes()} nodes and {grdg.number_of_edges()} edges.")
+    
+    
+    gnn_f1=[]
+    gnn_f1_1=[]
+    gnn_f1_2=[] 
+    gnn_f1_3=[]
+    nodes_type_1=[]
+    nodes_type_2=[]
+    nodes_type_3=[]
 
-            df_nodes = pl.DataFrame(rows)
-            rows = [(u, v, d.get("weight", 1.0)) for u, v, d in grdg.edges(data=True)]
-            df_edges = pl.DataFrame(rows, schema=["source", "target", "weight"])
-            df_nodes.write_ipc(f"{dataset}/grdgs/{theta}_nodes.feather")
-            df_edges.write_ipc(f"{dataset}/grdgs/{theta}_edges.feather")       
-            with open (f"{dataset}/grdgs/{theta}_f1.txt", "w") as f:
-                f.write(f"F1 Score: {np.mean(f1_score)}\n")
-                f.write(f"GNN F1 Score: {np.mean(gnn_f1_score)}\n")
-                f.write(f"Delete nodes: {len(f1_score)}\n")
+    for node,data in grdg.nodes(data=True):
+        
+        if(grdg.nodes[node].get("violation_type", 1)==1):
+                nodes_type_1.append(node)
+
+        if(grdg.nodes[node].get("violation_type", 1)==2):
+            nodes_type_2.append(node)
+
+        if(grdg.nodes[node].get("violation_type", 1)==3):
+            nodes_type_3.append(node)
+    
+    lists = [nodes_type_1, nodes_type_2, nodes_type_3]
+
+    with open(f"{dataset}/grdgs/node_types.csv", 'w', newline='') as f:
+        writer = csv.writer(f)
+
+        for i, lst in enumerate(lists, start=1):
+            for item in lst:
+                writer.writerow([item, i])    
+
+    for theta in [1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0.0]:
+        print(theta)
+        G=grdg.copy()
+        
+        
+        nodes_to_remove = [
+            node for node, attrs in G.nodes(data=True)
+            if attrs.get("difficulty", float("inf")) > theta
+        ]
+        
+
+        for node in nodes_to_remove:
+            edge_info = G.nodes[node].get("edge_info", {})
+
+            if not edge_info:
+                gnn_f1_score.append(0)
+                G.remove_node(node)
+                continue
+
+            best_edge, best_tuple = min(
+                edge_info.items(),
+                key=lambda item: item[1][0]
+            )
+
+            is_correct = best_tuple[1]
+            gnn_f1_score.append(1 if is_correct else 0)
+           
+
+            G.remove_node(node)
+
+        print(len(nodes_to_remove))    
+
+        
+        rows = []
+        for node_id, attrs in G.nodes(data=True):
+            row = {"id": node_id}
+            for k, v in attrs.items():
+                # dump lists, tuples, dicts, etc. as JSON text
+                if isinstance(v, (dict, list, tuple)):
+                    row[k] = str(v)
+                else:
+                    row[k] = v
+            rows.append(row)
+        df_nodes = pl.DataFrame(rows)
+        rows = [(u, v, d.get("weight", 1.0)) for u, v, d in grdg.edges(data=True)]
+        df_edges = pl.DataFrame(rows, schema=["source", "target", "weight"])
+        df_nodes.write_ipc(f"{dataset}/grdgs/{theta}_nodes.feather")
+        df_edges.write_ipc(f"{dataset}/grdgs/{theta}_edges.feather")       
+        with open (f"{dataset}/grdgs/{theta}_f1.txt", "w") as f:
+            f.write(f"F1 Score: {np.mean(f1_score)}\n")
+            f.write(f"GNN F1 Score: {np.mean(gnn_f1_score)}\n")
+            f.write(f"Delete nodes: {len(f1_score)}\n")
+
+    # for theta in [1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0.0]:
+    #     print(theta)
+    #     count = sum(
+    #         1 for _, attrs in grdg.nodes(data=True)
+    #         if attrs.get("difficulty", float("inf")) > theta
+    #     )
+    #     print(count)
+        # if theta == 1.0:
+        #     rows = []
+        #     for node_id, attrs in grdg.nodes(data=True):
+        #         row = {"id": node_id}
+        #         for k, v in attrs.items():
+        #             # dump lists, tuples, dicts, etc. as JSON text
+        #             if isinstance(v, (dict, list, tuple)):
+        #                 row[k] = str(v)
+        #             else:
+        #                 row[k] = v
+        #         rows.append(row)
+        #     df_nodes = pl.DataFrame(rows)
+        #     rows = [(u, v, d.get("weight", 1.0)) for u, v, d in grdg.edges(data=True)]
+        #     df_edges = pl.DataFrame(rows, schema=["source", "target", "weight"])
+        #     df_nodes.write_ipc(f"{dataset}/grdgs/{theta}_nodes.feather")
+        #     df_edges.write_ipc(f"{dataset}/grdgs/{theta}_edges.feather")       
+        #     with open (f"{dataset}/grdgs/{theta}_f1.txt", "w") as f:
+        #         f.write(f"F1 Score: {np.mean(f1_score)}\n")
+        #         f.write(f"GNN F1 Score: {np.mean(gnn_f1_score)}\n")
+        #         f.write(f"Delete nodes: {len(f1_score)}\n")
+            
+        # else:
+        #     print("with theta = "+str(theta)+" i should be here")
+        #     f1_score, gnn_f1_score = gnn_pass(grdg, theta)
+        #     print("and i should have called the pass")
+        #     rows = []
+        #     for node_id, attrs in grdg.nodes(data=True):
+        #         row = {"id": node_id}
+        #         for k, v in attrs.items():
+        #             # dump lists, tuples, dicts, etc. as JSON text
+        #             if isinstance(v, (dict, list, tuple)):
+        #                 row[k] = str(v)
+        #             else:
+        #                 row[k] = v
+        #         rows.append(row)
+
+        #     df_nodes = pl.DataFrame(rows)
+        #     rows = [(u, v, d.get("weight", 1.0)) for u, v, d in grdg.edges(data=True)]
+        #     df_edges = pl.DataFrame(rows, schema=["source", "target", "weight"])
+        #     df_nodes.write_ipc(f"{dataset}/grdgs/{theta}_nodes.feather")
+        #     df_edges.write_ipc(f"{dataset}/grdgs/{theta}_edges.feather")       
+        #     with open (f"{dataset}/grdgs/{theta}_f1.txt", "w") as f:
+        #         f.write(f"F1 Score: {np.mean(f1_score)}\n")
+        #         f.write(f"GNN F1 Score: {np.mean(gnn_f1_score)}\n")
+        #         f.write(f"Delete nodes: {len(f1_score)}\n")
     
     
     

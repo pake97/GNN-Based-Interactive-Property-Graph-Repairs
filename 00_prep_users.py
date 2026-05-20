@@ -14,16 +14,11 @@ if __name__ == "__main__":
     
     dataset = args.dataset
     
-    
-    
-    
-        
-    
-
     users = pl.read_ipc(f"{dataset}/users.feather", memory_map=False).select(
             "user_id","skills","cost","capacity"
         ).sort("skills")  # ascending by skill
-
+    
+    
     # suffix argmin of cost; keep argmin index and value
     c = users["cost"].to_list()
     n = len(c)
@@ -42,3 +37,4 @@ if __name__ == "__main__":
         pl.Series("suf_min_cost", suf_min_val),
     ])
     users.write_ipc(f"{dataset}/users_sorted.feather", compression="zstd")
+    print(users)

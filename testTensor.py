@@ -38,55 +38,55 @@ def parse_heterogeneous_csv(csv_path, embed_model='all-MiniLM-L6-v2'):
     is_edge = df["_id"].isna()
     node_df = df[~is_edge].copy()
     edge_df = df[is_edge].copy()
-    print(node_df)
-    for node_type in node_df["_labels"].unique():
-        
-        sub_df = node_df[node_df["_labels"] == node_type].copy()
-        
-        
-        # Drop completely empty columns
-        sub_df = sub_df.dropna(axis=1, how='all')
-        
-        # Identify properties that have a _GT counterpart
-        gt_cols = [col for col in sub_df.columns if col.endswith("_GT")]
-        valid_props = [col[:-3] for col in gt_cols if col[:-3] in sub_df.columns]
-        # Create ID mapping for this node type
-        
-        sub_df["_id"] = sub_df["_id"].astype(int)
-        
-        node_ids = sub_df["_id"].tolist()
-        id_maps[node_type] = dict(zip(sub_df["_id"].tolist(), range(len(sub_df))))
-        
-        
-        sub_df = sub_df[valid_props]
-        features = []
-        for col in sub_df.columns.to_list():
-
-            col_data = sub_df[col]
-            if col_data.astype(str).isin(['True', 'False']).all():
-                # Boolean column
-                #features.append(col_data.astype(str).map({'True': 1, 'False': 0}).astype(int).values[:, None])
-                features.append(torch.tensor(
-                    col_data.astype(str).map({'True': 1, 'False': 0}).astype(int).values[:, None],
-                    dtype=torch.float
-                ))
-            elif col_data.dtype == object:
-                # String column → embed
-                embeddings = model.encode(col_data.astype(str).tolist(), show_progress_bar=False)
-                features.append(torch.tensor(embeddings, dtype=torch.float))
-            else:
-                #features.append(torch.tensor(col_data.astype(float).values[:, None]))
-                scaler = MinMaxScaler()
-                scaled = scaler.fit_transform(col_data.astype(float).values.reshape(-1, 1))
-                features.append(torch.tensor(scaled, dtype=torch.float))
-
-        if features:
-            data[node_type].x = torch.cat(features, dim=1)
-        else:
-            data[node_type].x = torch.empty((len(sub_df), 0))
-        data[node_type].node_id = node_ids
-
     
+    for node_type in node_df["_labels"].unique():
+        if not node_type == "Violation":    
+            sub_df = node_df[node_df["_labels"] == node_type].copy()
+            
+            
+            # Drop completely empty columns
+            sub_df = sub_df.dropna(axis=1, how='all')
+            
+            # Identify properties that have a _GT counterpart
+            gt_cols = [col for col in sub_df.columns if col.endswith("_GT")]
+            valid_props = [col[:-3] for col in gt_cols if col[:-3] in sub_df.columns]
+            # Create ID mapping for this node type
+            
+            sub_df["_id"] = sub_df["_id"].astype(int)
+            
+            node_ids = sub_df["_id"].tolist()
+            id_maps[node_type] = dict(zip(sub_df["_id"].tolist(), range(len(sub_df))))
+            
+            
+            sub_df = sub_df[valid_props]
+            features = []
+            for col in sub_df.columns.to_list():
+
+                col_data = sub_df[col]
+                if col_data.astype(str).isin(['True', 'False']).all():
+                    # Boolean column
+                    #features.append(col_data.astype(str).map({'True': 1, 'False': 0}).astype(int).values[:, None])
+                    features.append(torch.tensor(
+                        col_data.astype(str).map({'True': 1, 'False': 0}).astype(int).values[:, None],
+                        dtype=torch.float
+                    ))
+                elif col_data.dtype == object:
+                    # String column → embed
+                    embeddings = model.encode(col_data.astype(str).tolist(), show_progress_bar=False)
+                    features.append(torch.tensor(embeddings, dtype=torch.float))
+                else:
+                    #features.append(torch.tensor(col_data.astype(float).values[:, None]))
+                    scaler = MinMaxScaler()
+                    scaled = scaler.fit_transform(col_data.astype(float).values.reshape(-1, 1))
+                    features.append(torch.tensor(scaled, dtype=torch.float))
+
+            if features:
+                data[node_type].x = torch.cat(features, dim=1)
+            else:
+                data[node_type].x = torch.empty((len(sub_df), 0))
+            data[node_type].node_id = node_ids
+
+        
     # First, annotate edge_df with inferred source and target node types
     edge_df["_src_type"] = edge_df["_start"].apply(lambda x: resolve_type(x,id_maps))
     edge_df["_dst_type"] = edge_df["_end"].apply(lambda x: resolve_type(x,id_maps))
@@ -119,7 +119,7 @@ def parse_heterogeneous_csv(csv_path, embed_model='all-MiniLM-L6-v2'):
 
         
         
-        labels = group["toDelete"].fillna(False).map({True: 0, False: 1}).astype(int)    
+        labels = group["toDelete"].fillna(False).map({True: 1, False: 0}).astype(int)    
         data[edge_key].edge_label = torch.tensor(labels.values, dtype=torch.long)
         
         # Violation mask → test mask

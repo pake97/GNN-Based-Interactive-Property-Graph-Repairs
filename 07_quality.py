@@ -22,6 +22,11 @@ if __name__ == "__main__":
 
 
     f1_gnn = {1.0: (0.0, 0)}
+# GNN F1 Score type 1: 0.49829273844753014
+# GNN F1 Score type 2: 0.43333333333333335
+# GNN F1 Score type 3: 0.0
+# GNN F1 Score AVG: 0.38769913815617657
+# Delete nodes: 333
 
     for theta in [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]:
         with open(f"{dataset}/grdgs/{str(theta)}_f1.txt", "r") as f:
@@ -29,6 +34,8 @@ if __name__ == "__main__":
             f1 = float(lines[0].strip().split(": ")[1])
             deleted = int(lines[2].strip().split(": ")[1])
             f1_gnn[theta] = (f1, deleted)
+            
+    
 
 
 
@@ -59,7 +66,6 @@ if __name__ == "__main__":
                     data = json.load(f)
                     
                     
-                    
                     row = [
                         dataset,
                         metric,
@@ -68,10 +74,28 @@ if __name__ == "__main__":
                         data.get("avg_f1"),
                         data.get("num_repairs"),
                         data.get("total_cost"),
-                        data.get("unique_users"),
+                        data.get("unique_users"),                    
+
+                        data.get("1_avg_f1"),
+                        data.get("1_num_repairs"),
+                        data.get("1_total_cost"),
+                        data.get("1_unique_users"),                    
+
+                        data.get("2_avg_f1"),
+                        data.get("2_num_repairs"),
+                        data.get("2_total_cost"),
+                        data.get("2_unique_users"),                    
+
+                        data.get("3_avg_f1"),
+                        data.get("3_num_repairs"),
+                        data.get("3_total_cost"),
+                        data.get("3_unique_users"),                                  
+                    
+                    
                         certificates.get("certified01", False),
                         certificates.get("certified05", False), 
-                        (f1_gnn.get(theta)[0]*f1_gnn.get(theta)[1] + data.get("avg_f1")*data.get("num_repairs"))/(f1_gnn.get(theta)[1]+data.get("num_repairs")) 
+                        (f1_gnn.get(theta)[0]*f1_gnn.get(theta)[1] + data.get("avg_f1")*data.get("num_repairs"))/(f1_gnn.get(theta)[1]+data.get("num_repairs")),                                   
+        
                     ]
                     
                     
